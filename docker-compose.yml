@@ -1,0 +1,22 @@
+services:
+  material-export-app:
+    build: .
+    image: material-export-app
+    container_name: material-export-app
+    ports:
+      - "8501:8501"
+    extra_hosts:
+      - "Saaplegl001:172.24.57.68"
+    volumes:
+      - ./Excel:/app/Excel
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - DB_SERVER=Saaplegl001
+      - DB_NAME=Export_DB
+      - DB_USE_WINDOWS_AUTH=false
+      - DB_PORT=1433
+      - DEBUG_SHEET=true
+      - EXCEL_ENABLED=true
+    restart: unless-stopped
