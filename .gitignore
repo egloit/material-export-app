@@ -1,11 +1,12 @@
+# -------------------------
 # Python
+# -------------------------
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 build/
-develop-eggs/
 dist/
 downloads/
 eggs/
@@ -20,38 +21,75 @@ wheels/
 .installed.cfg
 *.egg
 
+# Caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# -------------------------
 # Virtual Environment
+# -------------------------
+.venv/
 venv/
 ENV/
 env/
 
+# -------------------------
 # Streamlit
+# -------------------------
 .streamlit/
 
+# -------------------------
 # Logs
-logs/*.log
+# -------------------------
+logs/
 *.log
 
-# Data
+# -------------------------
+# Data (optional - nur wenn nicht versioniert werden soll)
+# -------------------------
 data/*
 !data/.gitkeep
 
-# Database credentials (IMPORTANT!)
+# Falls du Excel Uploads lokal speicherst:
+Excel/
+uploads/
+
+# -------------------------
+# Secrets / Credentials
+# -------------------------
 config.py
 .env
+.env.*
+*.secret
+*.secrets
 start-sqlauth.bat
 
+# -------------------------
+# Docker
+# -------------------------
+*.tar
+docker-compose.override.yml
+
+# -------------------------
 # IDE
+# -------------------------
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
+# -------------------------
 # OS
+# -------------------------
 .DS_Store
 Thumbs.db
 
-# Temporary files
-*.tmp
-*.temp
+# -------------------------
+# Windows Reserved Files (nach deinem nul-Drama 😄)
+# -------------------------
+nul
+con
+prn
+aux
