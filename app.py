@@ -16,6 +16,11 @@ from services.excel_calculation_service import ExcelCalculationService
 from utils.parsers import parse_material_input, parse_dimensions
 from utils.logger import CalculationLogger
 
+try:
+    APP_VERSION = open("VERSION").read().strip()
+except FileNotFoundError:
+    APP_VERSION = "unknown"
+
 # Page Configuration
 st.set_page_config(
     page_title="Packaging calculation System",
@@ -61,6 +66,9 @@ def render_sidebar():
             value=Config.EXCEL_ENABLED,
             help="Use formulas library to compute costs directly from supplier Excel files"
         )
+
+        st.divider()
+        st.caption(f"v{APP_VERSION}")
 
 
 def main():
