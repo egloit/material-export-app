@@ -45,7 +45,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN apt-get purge -y --auto-remove gcc g++ curl gnupg2 apt-transport-https \
     && rm -rf /var/lib/apt/lists/*
 
-COPY app.py run.py config.py diagnose_db.py ./
+COPY app.py run.py config.py diagnose_db.py VERSION ./
 COPY services/ ./services/
 COPY utils/ ./utils/
 

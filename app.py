@@ -7,6 +7,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import re
+from pathlib import Path
 
 from config import Config, LogConfig
 from services.database_service import DatabaseService
@@ -17,7 +18,7 @@ from utils.parsers import parse_material_input, parse_dimensions
 from utils.logger import CalculationLogger
 
 try:
-    APP_VERSION = open("VERSION").read().strip()
+    APP_VERSION = (Path(__file__).parent / "VERSION").read_text().strip()
 except FileNotFoundError:
     APP_VERSION = "unknown"
 
