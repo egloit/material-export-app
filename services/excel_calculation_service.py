@@ -32,18 +32,29 @@ class ExcelCalculationService:
     # ------------------------------------------------------------------
 
     def list_suppliers(self) -> List[str]:
-        """Scan the Excel folder and return supplier names (filename without .xlsx)."""
-        folder = self.config.EXCEL_FOLDER
-        if not os.path.isdir(folder):
-            if self.app_logger:
-                self.app_logger.log_warning("ExcelService", f"Excel folder not found: {folder}")
-            return []
+        """Scan base and upload folders, return supplier names (filename without .xlsx).        Upload folder takes precedence over base folder for duplicate names.
+        Base suppliers listed in the blocklist are excluded unless overridden by an upload."""
+        blocklist = self._get_blocklist()
+        upload_folder = Path(self.config.EXCEL_FOLDER)
+        uploaded = {
+            Path(f).stem.lower()
+            for f in os.listdir(upload_folder)
+            if f.lower().endswith('.xlsx') and not f.startswith('~$')
+        } if upload_folder.is_dir() else set()
 
-        suppliers = []
-        for fname in sorted(os.listdir(folder)):
-            if fname.lower().endswith('.xlsx') and not fname.startswith('~$'):
-                suppliers.append(Path(fname).stem)
-        return suppliers
+        seen: Dict[str, None] = {}
+        base_folder = Path(self.config.EXCEL_BASE_FOLDER)
+        if base_folder.is_dir():
+            for fname in sorted(os.listdir(base_folder)):
+                if fname.lower().endswith('.xlsx') and not fname.startswith('~$'):
+                    stem = Path(fname).stem
+                    if stem.lower() not in blocklist or stem.lower() in uploaded:
+                        seen[stem] = None
+        if upload_folder.is_dir():
+            for fname in sorted(os.listdir(upload_folder)):
+                if fname.lower().endswith('.xlsx') and not fname.startswith('~$'):
+                    seen[Path(fname).stem] = None
+        return sorted(seen.keys())
 
     def find_matching_row_group(
         self,
@@ -268,17 +279,48 @@ class ExcelCalculationService:
     # ------------------------------------------------------------------
 
     def _excel_path(self, supplier: str) -> Optional[Path]:
-        """Return the full path to a supplier's Excel file, or None."""
-        p = Path(self.config.EXCEL_FOLDER) / f"{supplier}.xlsx"
-        if p.exists():
-            return p
-        # Try case-insensitive match
-        folder = Path(self.config.EXCEL_FOLDER)
-        if folder.is_dir():
-            for f in folder.iterdir():
-                if f.suffix.lower() == '.xlsx' and f.stem.lower() == supplier.lower():
-                    return f
+        """Return the full path to a supplier's Excel file, or None.
+        Upload folder (EXCEL_FOLDER) is checked first; falls back to EXCEL_BASE_FOLDER.
+        Base files in the blocklist are skipped unless overridden by an upload."""
+        blocklist = self._get_blocklist()
+        folders = [
+            (self.config.EXCEL_FOLDER, False),
+            (self.config.EXCEL_BASE_FOLDER, True),
+        ]
+        for folder_str, is_base in folders:
+            if is_base and supplier.lower() in blocklist:
+                continue
+            folder = Path(folder_str)
+            p = folder / f"{supplier}.xlsx"
+            if p.exists():
+                return p
+            if folder.is_dir():
+                for f in folder.iterdir():
+                    if f.suffix.lower() == '.xlsx' and f.stem.lower() == supplier.lower():
+                        return f
         return None
+
+    def _get_blocklist(self) -> set:
+        """Return the set of blocked base supplier names (lowercase)."""
+        bl_file = Path(self.config.EXCEL_FOLDER) / ".blocklist"
+        if not bl_file.exists():
+            return set()
+        return {line.strip().lower() for line in bl_file.read_text().splitlines() if line.strip()}
+
+    def block_base_supplier(self, supplier: str) -> None:
+        """Add a base supplier to the blocklist."""
+        bl_file = Path(self.config.EXCEL_FOLDER) / ".blocklist"
+        blocked = self._get_blocklist()
+        blocked.add(supplier.lower())
+        bl_file.write_text("\n".join(sorted(blocked)))
+        self._model_cache.pop(supplier.lower(), None)
+
+    def unblock_base_supplier(self, supplier: str) -> None:
+        """Remove a base supplier from the blocklist."""
+        bl_file = Path(self.config.EXCEL_FOLDER) / ".blocklist"
+        blocked = self._get_blocklist()
+        blocked.discard(supplier.lower())
+        bl_file.write_text("\n".join(sorted(blocked)))
 
     def _load_model(self, supplier: str):
         """Load and cache the formulas ExcelModel for a supplier."""

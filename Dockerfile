@@ -48,8 +48,9 @@ RUN apt-get purge -y --auto-remove gcc g++ curl gnupg2 apt-transport-https \
 COPY app.py run.py config.py diagnose_db.py VERSION ./
 COPY services/ ./services/
 COPY utils/ ./utils/
+COPY Excel/ ./Excel_base/
 
-RUN mkdir -p logs data
+RUN mkdir -p logs data Excel
 
 VOLUME ["/app/Excel"]
 EXPOSE 8501

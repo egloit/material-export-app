@@ -30,6 +30,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+st.markdown("""
+<style>
+div[data-testid="stButton"] button[kind="tertiary"] { color: #e00; padding: 0; }
+</style>
+""", unsafe_allow_html=True)
+
 # Initialize session state
 if 'results' not in st.session_state:
     st.session_state.results = None
@@ -69,6 +75,74 @@ def render_sidebar():
         )
 
         st.divider()
+        st.subheader("📁 Supplier Excel Files")
+        upload_folder = Path(Config.EXCEL_FOLDER)
+        upload_folder.mkdir(parents=True, exist_ok=True)
+
+        uploaded = st.file_uploader(
+            "Upload new supplier (.xlsx)",
+            type=["xlsx"],
+            accept_multiple_files=True,
+            help="Uploaded files are stored persistently and override base files with the same name.",
+        )
+        if uploaded:
+            for f in uploaded:
+                dest = upload_folder / f.name
+                dest.write_bytes(f.getvalue())
+            st.success(f"{len(uploaded)} file(s) saved.")
+
+        excel_svc = st.session_state.get("excel_service")
+        base_folder = Path(Config.EXCEL_BASE_FOLDER)
+        blocklist = excel_svc._get_blocklist() if excel_svc else set()
+
+        active: dict[str, str] = {}   # name -> "base" | "uploaded"
+        blocked: list[str] = []       # blocked base suppliers (not overridden by upload)
+
+        uploaded_stems = {
+            f.stem.lower()
+            for f in upload_folder.glob("*.xlsx")
+            if not f.name.startswith("~$")
+        } if upload_folder.is_dir() else set()
+
+        if base_folder.is_dir():
+            for f in sorted(base_folder.glob("*.xlsx")):
+                if f.name.startswith("~$"):
+                    continue
+                if f.stem.lower() in blocklist and f.stem.lower() not in uploaded_stems:
+                    blocked.append(f.stem)
+                else:
+                    active[f.stem] = "base"
+        if upload_folder.is_dir():
+            for f in sorted(upload_folder.glob("*.xlsx")):
+                if not f.name.startswith("~$"):
+                    active[f.stem] = "uploaded"
+
+        if active:
+            with st.expander(f"Active suppliers ({len(active)})", expanded=False):
+                for name, source in sorted(active.items()):
+                    tag = "⬆️" if source == "uploaded" else "📦"
+                    col_btn, col_name = st.columns([1, 5], vertical_alignment="center")
+                    if col_btn.button("✕", key=f"del_{name}", help=f"Delete {name}.xlsx", type="tertiary"):
+                        if source == "uploaded":
+                            (upload_folder / f"{name}.xlsx").unlink(missing_ok=True)
+                        if source == "base" and excel_svc:
+                            excel_svc.block_base_supplier(name)
+                        st.rerun()
+                    col_name.caption(f"{tag} {name}")
+        else:
+            st.caption("No supplier files found.")
+
+        if blocked:
+            with st.expander(f"Hidden base suppliers ({len(blocked)})", expanded=False):
+                for name in sorted(blocked):
+                    col_btn, col_name = st.columns([1, 5], vertical_alignment="center")
+                    if col_btn.button("↩", key=f"restore_{name}", help=f"Restore {name}", type="tertiary"):
+                        if excel_svc:
+                            excel_svc.unblock_base_supplier(name)
+                        st.rerun()
+                    col_name.caption(f"🚫 {name}")
+
+        st.divider()
         st.caption(f"v{APP_VERSION}")
 
 
@@ -86,6 +160,7 @@ def main():
     excel_service = None
     if config.EXCEL_ENABLED:
         excel_service = ExcelCalculationService(config, logger)
+    st.session_state.excel_service = excel_service
 
     calc_service = CalculationService(config, logger, excel_service=excel_service)
 
