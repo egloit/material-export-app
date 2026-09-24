@@ -2,6 +2,13 @@ FROM python:3.11-slim-bullseye
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# --- Debian 11 (bullseye) ist EOL: deb.debian.org liefert 404 -> fester Snapshot ---
+RUN printf '%s\n' \
+    "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260801T000000Z bullseye main" \
+    "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260801T000000Z bullseye-security main" \
+    "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260801T000000Z bullseye-updates main" \
+    > /etc/apt/sources.list
+
 # --- System deps + Build deps (bleiben bis nach pip install) ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \

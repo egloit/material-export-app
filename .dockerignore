@@ -1,5 +1,5 @@
 .venv/
-__pycache__/
+**/__pycache__/
 *.pyc
 logs/
 data/
@@ -7,3 +7,7 @@ data/
 .gitignore
 *.md
 start.bat
+.env
+.env.*
+!.env.example
+.idea/

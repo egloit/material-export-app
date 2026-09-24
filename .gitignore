@@ -58,9 +58,9 @@ uploads/
 # -------------------------
 # Secrets / Credentials
 # -------------------------
-config.py
 .env
 .env.*
+!.env.example
 *.secret
 *.secrets
 start-sqlauth.bat
