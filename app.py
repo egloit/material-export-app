@@ -291,7 +291,7 @@ def show_test_part_form(excel_service, logger):
             'SIZE TYPE': size,
             'DESIGN TYPE': design,
         }],
-        'excel_results_by_key': {key: excel_results},
+        'excel_results_by_key': {0: excel_results},
     }
     st.session_state.logger = logger
     st.rerun()
@@ -325,10 +325,13 @@ def process_materials(material_input, db_service, calc_service, logger):
                 st.error(f"Database error: {str(e)}")
                 return
 
-        if not sap_rows:
+        found = {row['SAP Material Nr'] for row in sap_rows}
+        not_found = [m for m in mat_array if m not in found]
+        if not sap_rows and not test_lines:
             st.warning("No materials found in SAP.")
-            if not test_lines:
-                return
+            return
+    else:
+        not_found = []
 
     # New-part test lines have no SAP record: the line itself serves as
     # material number and description (box type, dimensions, ply, design)
@@ -399,12 +402,14 @@ def process_materials(material_input, db_service, calc_service, logger):
                     excel_results = calc_service.compute_all_suppliers_from_excel(
                         ply_type, box_type, size_type, design_type, L_num, B_num, H_num
                     )
-                    excel_results_by_key[matnr] = excel_results
+                    # Keyed by row: SAP can return several descriptions per material
+                    excel_results_by_key[len(enhanced_rows) - 1] = excel_results
 
     # Store in session
     st.session_state.results = {
         'enhanced_rows': enhanced_rows,
         'excel_results_by_key': excel_results_by_key,
+        'not_found': not_found,
     }
     st.session_state.logger = logger
     st.rerun()
@@ -417,6 +422,9 @@ def show_results(results, logger, export_service):
     enhanced_rows = results['enhanced_rows']
     excel_results_by_key = results.get('excel_results_by_key', {})
 
+    if results.get('not_found'):
+        st.warning("Not found in SAP: " + ", ".join(results['not_found']))
+
     # Main table
     df_main = pd.DataFrame(enhanced_rows)
     st.dataframe(df_main, width='stretch', hide_index=True)
@@ -426,9 +434,9 @@ def show_results(results, logger, export_service):
         st.divider()
         st.subheader("📊 Excel-based Supplier Costs")
 
-        for row_data in enhanced_rows:
+        for idx, row_data in enumerate(enhanced_rows):
             matnr = row_data['SAP Material Nr']
-            excel_results = excel_results_by_key.get(matnr, {})
+            excel_results = excel_results_by_key.get(idx, {})
 
             if not excel_results:
                 continue

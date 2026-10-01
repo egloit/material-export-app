@@ -114,8 +114,10 @@ class ExcelCalculationService:
             cell_j = str(ws.cell(row=first_row, column=10).value or '').strip()
             cell_k = str(ws.cell(row=first_row, column=11).value or '').strip()
 
-            # Box Type is required — skip if it doesn't match
-            if box and box.lower() not in cell_i.lower():
+            # Box Type is required — it must equal one of the "&"-separated
+            # terms, so "KRT" does not match "KRTB" and "KM" matches "KM & HSC"
+            box_terms = [t.strip().lower() for t in cell_i.split('&')]
+            if box and box.lower() not in box_terms:
                 continue
             if require_design and design.upper() != cell_k.upper():
                 continue
@@ -123,7 +125,10 @@ class ExcelCalculationService:
             score = 0
             if ply and ply.lower() in cell_h.lower():
                 score += 1
-            if box and box.lower() in cell_i.lower():
+            if box and box.lower() in box_terms:
+                score += 1
+            # Prefer the plain box type ("KM") over combinations ("KM & HSC")
+            if box and box.lower() == cell_i.lower():
                 score += 1
             if size and size in cell_j:
                 score += 1
@@ -138,7 +143,7 @@ class ExcelCalculationService:
 
         if self.app_logger and best_row:
             self.app_logger.log_info(
-                f"[ExcelService] {supplier}: best match row {best_row} (score {best_score}/4)"
+                f"[ExcelService] {supplier}: best match row {best_row} (score {best_score}/5)"
             )
 
         return best_row
