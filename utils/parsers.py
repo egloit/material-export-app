@@ -40,6 +40,34 @@ def parse_dimensions(desc: str) -> Dict[str, Optional[str]]:
     return {'L': L, 'B': B, 'H': H, 'TYPE': TYPE}
 
 
+TEST_PART_PATTERN = re.compile(r'^[A-Z]+_TEST\b', re.IGNORECASE)
+
+
+def split_test_parts(input_text: str) -> Tuple[List[str], str]:
+    """
+    Separate new-part test lines (no SAP material) from the rest of the input
+
+    A test line starts with <BOX TYPE>_TEST and is used as its own description,
+    e.g. "KM_TEST 150 X 250 X 300_3PLY_I" or "KRTB_TEST 150 X 250 X 300_3PLY_U".
+
+    Returns:
+        Tuple of (test_lines, remaining_text)
+        - test_lines: unique test lines, upper-cased
+        - remaining_text: all other lines for parse_material_input
+    """
+    test_lines = []
+    other_lines = []
+    for line in input_text.strip().split('\n'):
+        line = line.strip()
+        if TEST_PART_PATTERN.match(line):
+            line = line.upper()
+            if line not in test_lines:
+                test_lines.append(line)
+        else:
+            other_lines.append(line)
+    return test_lines, '\n'.join(other_lines)
+
+
 def parse_material_input(input_text: str, logger=None) -> Tuple[List[str], Dict[str, Dict]]:
     """
     Parse material input from user

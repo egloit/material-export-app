@@ -97,6 +97,14 @@ class ExcelCalculationService:
 
         # Score each group by matching Ply/Box/Size/Design on its first row.
         # Box Type (col I) must match — skip groups where it doesn't.
+        # Design Type (col K) must match too, but only if it is a design used in
+        # the sheet (SAP descriptions can end in arbitrary letters, e.g. "GSM").
+        known_designs = {
+            str(ws.cell(row=r, column=11).value or '').strip().upper()
+            for r in groups.values()
+        }
+        require_design = bool(design) and design.upper() in known_designs
+
         best_row = None
         best_score = -1
 
@@ -108,6 +116,8 @@ class ExcelCalculationService:
 
             # Box Type is required — skip if it doesn't match
             if box and box.lower() not in cell_i.lower():
+                continue
+            if require_design and design.upper() != cell_k.upper():
                 continue
 
             score = 0
@@ -132,6 +142,100 @@ class ExcelCalculationService:
             )
 
         return best_row
+
+    def list_row_groups(self, supplier: str) -> List[Dict]:
+        """
+        Return all Sl.No. groups of a supplier's Excel file with the criteria
+        of their first row: sl_no, row, desc (E), ply (H), box (I), size (J), design (K).
+        Groups without Box Type (not applicable for this supplier) are skipped.
+        """
+        excel_path = self._excel_path(supplier)
+        if not excel_path:
+            return []
+
+        wb = openpyxl.load_workbook(str(excel_path), data_only=True, read_only=True)
+        ws = wb.active
+
+        def text(v):
+            return str(v).strip() if v is not None else ''
+
+        groups = []
+        seen = set()
+        for row_idx, row in enumerate(ws.iter_rows(min_row=6, max_col=11, values_only=True), start=6):
+            sl_key = text(row[0])
+            if not sl_key or sl_key in seen:
+                continue
+            seen.add(sl_key)
+            if not text(row[8]):
+                continue
+            groups.append({
+                'sl_no': sl_key,
+                'row': row_idx,
+                'desc': text(row[4]),
+                'ply': text(row[7]),
+                'box': text(row[8]),
+                'size': text(row[9]),
+                'design': text(row[10]),
+            })
+
+        wb.close()
+        return groups
+
+    def list_all_row_groups(self) -> List[Dict]:
+        """
+        Merge the Sl.No. groups of all suppliers.  Criteria and description are
+        taken from the first supplier that has the Sl.No.; 'rows' maps each
+        supplier offering it to its start row.
+        """
+        merged: Dict[str, Dict] = {}
+        for supplier in self.list_suppliers():
+            for g in self.list_row_groups(supplier):
+                entry = merged.setdefault(g['sl_no'], {**g, 'rows': {}})
+                entry['rows'][supplier] = g['row']
+
+        def sort_key(sl_no: str):
+            try:
+                return (0, float(sl_no))
+            except ValueError:
+                return (1, sl_no)
+
+        return [merged[k] for k in sorted(merged, key=sort_key)]
+
+    def files_signature(self) -> Tuple:
+        """(supplier, path, mtime) of all active supplier files – changes on upload/delete."""
+        sig = []
+        for supplier in self.list_suppliers():
+            p = self._excel_path(supplier)
+            if p:
+                sig.append((supplier, str(p), p.stat().st_mtime))
+        return tuple(sig)
+
+    def compute_all_suppliers_for_group(
+        self,
+        rows: Dict[str, int],
+        L: float,
+        B: float,
+        H: float,
+    ) -> Dict[str, Optional[Dict]]:
+        """
+        Compute costs for an explicitly chosen Sl.No. group.
+
+        rows maps supplier -> start row (see list_all_row_groups); suppliers
+        without that group get None.
+        """
+        results = {}
+        for supplier in self.list_suppliers():
+            start_row = rows.get(supplier)
+            if start_row is None:
+                results[supplier] = None
+                continue
+            try:
+                results[supplier] = self.compute_from_excel(supplier, start_row, L, B, H)
+            except Exception as e:
+                if self.app_logger:
+                    self.app_logger.log_error("ExcelService", f"{supplier}: {e}")
+                results[supplier] = None
+        return results
 
     def _get_group_size(self, supplier: str, start_row: int) -> int:
         """Determine how many rows belong to the Sl.No. group starting at start_row."""

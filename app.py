@@ -14,7 +14,7 @@ from services.database_service import DatabaseService
 from services.calculation_service import CalculationService
 from services.export_service import ExportService
 from services.excel_calculation_service import ExcelCalculationService
-from utils.parsers import parse_material_input, parse_dimensions
+from utils.parsers import parse_material_input, parse_dimensions, split_test_parts
 from utils.logger import CalculationLogger
 
 try:
@@ -174,7 +174,11 @@ def main():
             st.session_state.logger = None
             st.rerun()
     else:
-        show_input_form(db_service, calc_service, logger)
+        tab_sap, tab_test = st.tabs(["SAP Material", "New Part (Test)"])
+        with tab_sap:
+            show_input_form(db_service, calc_service, logger)
+        with tab_test:
+            show_test_part_form(excel_service, logger)
 
 
 def show_input_form(db_service, calc_service, logger):
@@ -187,18 +191,110 @@ def show_input_form(db_service, calc_service, logger):
     **Optional dimensions:**
     - `KM0290 100x380x535` (with x separator)
     - `KM0290;100;380;535` (with semicolon separator)
+
+    **New part test (without SAP material):**
+    - `KM_TEST 150 X 250 X 300_3PLY_I` (Box Type_TEST L X B X H_Ply_Design Type)
     """)
 
     material_input = st.text_area(
         "Material Numbers",
         height=200,
-        placeholder="KM0290 100x380x535\nKM1234\nKM5678;120;95;80"
+        placeholder="KM0290 100x380x535\nKM1234\nKM5678;120;95;80\nKRTB_TEST 150 X 250 X 300_3PLY_U"
     )
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button("🔍 Submit & Show Table", type="primary", width='stretch'):
             process_materials(material_input, db_service, calc_service, logger)
+
+
+@st.cache_data(show_spinner=False)
+def load_row_groups(_excel_service, files_signature):
+    """Sl.No. groups of all suppliers; re-read whenever a supplier file changes."""
+    return _excel_service.list_all_row_groups()
+
+
+DESIGN_LABELS = {'U': 'U (Universal)', 'I': 'I (Interlock)', 'Inlay': 'Inlay'}
+
+
+def show_test_part_form(excel_service, logger):
+    """Calculate test prices for a new part without SAP material"""
+    st.title("🧪 New Part (Test)")
+
+    if not (Config.EXCEL_ENABLED and excel_service):
+        st.warning("Enable 'Excel-based Calculation' in the sidebar to calculate test prices.")
+        return
+
+    groups = load_row_groups(excel_service, excel_service.files_signature())
+    if not groups:
+        st.warning("No supplier Excel files found.")
+        return
+
+    col1, col2, col3 = st.columns(3)
+    boxes = sorted({g['box'] for g in groups})
+    box = col1.selectbox("Box Type", boxes, index=boxes.index('KM') if 'KM' in boxes else 0, key="tp_box")
+    groups = [g for g in groups if g['box'] == box]
+    ply = col2.selectbox("Ply Type", sorted({g['ply'] for g in groups}), key="tp_ply")
+    groups = [g for g in groups if g['ply'] == ply]
+    design = col3.selectbox(
+        "Design Type", sorted({g['design'] for g in groups}),
+        format_func=lambda d: DESIGN_LABELS.get(d, d or '-'), key="tp_design"
+    )
+    groups = [g for g in groups if g['design'] == design]
+
+    is_inlay = design == 'Inlay'
+    col1, col2, col3, col4 = st.columns(4)
+    L = col1.number_input("L (mm)", min_value=1, value=150, step=1, key="tp_L")
+    B = col2.number_input("B (mm)", min_value=1, value=250, step=1, key="tp_B")
+    H = col3.number_input("H (mm)", min_value=1, value=300, step=1, key="tp_H", disabled=is_inlay)
+    if is_inlay:
+        H = 0
+
+    auto_size = '> 300 mm' if L > 300 else '< 300 mm'
+    size_choice = col4.selectbox(
+        "Size Type", ["auto", "< 300 mm", "> 300 mm"],
+        format_func=lambda s: f"{auto_size} (auto from L)" if s == "auto" else s, key="tp_size"
+    )
+    size = auto_size if size_choice == "auto" else size_choice
+    # Groups without Size Type (e.g. Interlock, Inlay) apply to any size
+    groups = [g for g in groups if not g['size'] or g['size'] == size]
+
+    if not groups:
+        st.warning(f"No calculation row for {box} / {ply} / {design} / {size}.")
+        return
+
+    group = st.radio(
+        "Matching calculation",
+        groups,
+        format_func=lambda g: f"Sl.No. {g['sl_no']} – {g['desc']}  ({', '.join(sorted(g['rows']))})",
+        key="tp_group",
+    )
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if not st.button("💰 Calculate Test Price", type="primary", width='stretch'):
+            return
+
+    key = f"TEST Sl.No. {group['sl_no']}"
+    with st.spinner("Calculating..."):
+        excel_results = excel_service.compute_all_suppliers_for_group(group['rows'], L, B, H)
+
+    st.session_state.results = {
+        'enhanced_rows': [{
+            'SAP Material Nr': key,
+            'SAP Description': group['desc'],
+            'L': L,
+            'B': B,
+            'H': H,
+            'PLY TYPE': ply,
+            'BOX TYPE': box,
+            'SIZE TYPE': size,
+            'DESIGN TYPE': design,
+        }],
+        'excel_results_by_key': {key: excel_results},
+    }
+    st.session_state.logger = logger
+    st.rerun()
 
 
 def process_materials(material_input, db_service, calc_service, logger):
@@ -209,25 +305,34 @@ def process_materials(material_input, db_service, calc_service, logger):
 
     # Parse input
     with st.spinner("Parsing..."):
-        mat_array, dim_overrides = parse_material_input(material_input, logger)
+        test_lines, sap_input = split_test_parts(material_input)
+        mat_array, dim_overrides = parse_material_input(sap_input, logger) if sap_input.strip() else ([], {})
 
-    if not mat_array:
+    if not mat_array and not test_lines:
         st.error("No valid material numbers found.")
         return
 
-    st.success(f"Found {len(mat_array)} material(s)")
+    st.success(f"Found {len(mat_array)} material(s)"
+               + (f" and {len(test_lines)} test part(s)" if test_lines else ""))
 
     # Query SAP
-    with st.spinner("Querying database..."):
-        try:
-            sap_rows = db_service.get_sap_master_data(mat_array)
-        except Exception as e:
-            st.error(f"Database error: {str(e)}")
-            return
+    sap_rows = []
+    if mat_array:
+        with st.spinner("Querying database..."):
+            try:
+                sap_rows = db_service.get_sap_master_data(mat_array)
+            except Exception as e:
+                st.error(f"Database error: {str(e)}")
+                return
 
-    if not sap_rows:
-        st.warning("No materials found in SAP.")
-        return
+        if not sap_rows:
+            st.warning("No materials found in SAP.")
+            if not test_lines:
+                return
+
+    # New-part test lines have no SAP record: the line itself serves as
+    # material number and description (box type, dimensions, ply, design)
+    sap_rows += [{'SAP Material Nr': line, 'SAP Description': line} for line in test_lines]
 
     # Process each material
     with st.spinner("Processing..."):
@@ -370,7 +475,7 @@ def show_excel_supplier_costs(excel_results: dict):
                 'AJ Row 1': '-',
                 'AJ Row 2': '-',
                 'AJ Row 3': '-',
-                'Final Cost (AK)': 'No match / Error',
+                'Final Cost (AK)': 'N/A',
             })
         else:
             aj = result['AJ']
