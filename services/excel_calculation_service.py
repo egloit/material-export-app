@@ -121,6 +121,12 @@ class ExcelCalculationService:
                 continue
             if require_design and design.upper() != cell_k.upper():
                 continue
+            # Ply and Size Type must match where the group defines them, so a
+            # 5 Ply > 300 mm box never falls back to a "< 300 mm" group
+            if ply and cell_h and ply.lower() != cell_h.lower():
+                continue
+            if size and cell_j and size != cell_j:
+                continue
 
             score = 0
             if ply and ply.lower() in cell_h.lower():

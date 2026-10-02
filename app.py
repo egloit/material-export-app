@@ -374,6 +374,9 @@ def process_materials(material_input, db_service, calc_service, logger):
             desc_trim = desc.rstrip()
             if desc_trim and desc_trim[-1] != ')':
                 design_type = desc_trim[-1].upper()
+            # Without H the part is flat, i.e. an Inlay (e.g. "INLAY 115X60MM_3PLY")
+            if not (ov['N'] if ov else parsed['H']):
+                design_type = 'Inlay'
 
             # Dimensions (resolved) – fall back to '1' if a value is missing
             L_val = (ov['L'] if ov else parsed['L']) or '1'
