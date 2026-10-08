@@ -344,7 +344,7 @@ def process_materials(material_input, db_service, calc_service, logger):
 
         for sap_row in sap_rows:
             matnr = sap_row['SAP Material Nr']
-            desc = sap_row.get('SAP Description', '')
+            desc = sap_row.get('SAP Description') or ''
             parsed = parse_dimensions(desc)
             ov = dim_overrides.get(matnr)
 

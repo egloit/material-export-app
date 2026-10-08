@@ -75,10 +75,13 @@ class DatabaseService:
         placeholders = ','.join(['?' for _ in material_numbers])
         sql = f"""
             SELECT DISTINCT
-                zmbest13_matnr AS [SAP Material Nr],
-                zmbest13_maktx AS [SAP Description]
-            FROM [Export_DB].[dbo].[extr_sap_ZMBEST13]
-            WHERE zmbest13_matnr IN ({placeholders})
+                mara.mara_matnr AS [SAP Material Nr],
+                makt.makt_maktx AS [SAP Description]
+            FROM [Export_DB].[dbo].[extr_sap_MARA_Artikelstamm] AS mara
+            LEFT JOIN [Export_DB].[dbo].[extr_sap_makt_artikelkurztexte] AS makt
+                ON makt.makt_matnr = mara.mara_matnr
+                AND makt.makt_spras = 'E'
+            WHERE mara.mara_matnr IN ({placeholders})
         """
         
         start_time = time.time()
